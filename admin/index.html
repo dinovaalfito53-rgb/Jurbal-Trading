@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASSO Admin - Generate License</title>
+    <style>
+        body {
+            background: #030712;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .admin-card {
+            background: #0b1424;
+            border: 1px solid rgba(0,255,136,0.2);
+            border-radius: 20px;
+            padding: 32px;
+            width: 90%;
+            max-width: 420px;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(0,0,0,0.6);
+        }
+        h2 { color: #00ff88; margin-bottom: 24px; }
+        label { display: block; margin: 12px 0 6px; font-size: 0.8rem; text-transform: uppercase; text-align: left; }
+        select, input {
+            width: 100%;
+            background: #020617;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            font-family: monospace;
+            margin-bottom: 16px;
+        }
+        .btn {
+            background: #059669;
+            color: #000;
+            font-weight: 700;
+            font-family: monospace;
+            border: none;
+            padding: 14px;
+            width: 100%;
+            border-radius: 12px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 16px;
+            background: #02030a;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: monospace;
+            color: #00ff88;
+        }
+        .error { color: #ff3b5c; margin-top: 10px; }
+        #durationNumber { display: none; }
+    </style>
+</head>
+<body>
+    <div class="admin-card">
+        <h2>🔐 Generate License Key</h2>
+
+        <label>Durasi</label>
+        <select id="type">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="permanent">Permanent</option>
+        </select>
+
+        <div id="durationNumber">
+            <label>Jumlah</label>
+            <input type="number" id="duration" value="1" min="1" max="365">
+        </div>
+
+        <button class="btn" onclick="generateKey()">⚡ GENERATE KEY</button>
+        <div id="result" class="result" style="display:none;"></div>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        // Proteksi akses admin
+        const adminToken = new URLSearchParams(window.location.search).get('admin');
+        if (adminToken !== 'ASSOxVan') {
+            document.body.innerHTML = '<h1 style="color:#ff3b5c;text-align:center;margin-top:100px;">403 Forbidden</h1>';
+            throw new Error('Access denied');
+        }
+
+        const typeSelect = document.getElementById('type');
+        const durationDiv = document.getElementById('durationNumber');
+
+        function toggleDuration() {
+            const type = typeSelect.value;
+            durationDiv.style.display = (type === 'permanent') ? 'none' : 'block';
+        }
+        typeSelect.addEventListener('change', toggleDuration);
+        toggleDuration();
+
+        async function generateKey() {
+            const type = typeSelect.value;
+            const duration = parseInt(document.getElementById('duration').value) || 1;
+            const resultEl = document.getElementById('result');
+            const errorEl = document.getElementById('error');
+            resultEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            try {
+                const res = await fetch('/api/admin/generate-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': 'ASSOxVan'
+                    },
+                    body: JSON.stringify({ type, duration })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    let info = `✅ KEY: <strong>${data.key}</strong><br>Tipe: ${data.type}`;
+                    if (data.expiry) {
+                        info += `<br>Expired: ${new Date(data.expiry).toLocaleDateString('id-ID')}`;
+                    } else {
+                        info += `<br>Permanen (tidak expired)`;
+                    }
+                    resultEl.innerHTML = info;
+                    resultEl.style.display = 'block';
+                } else {
+                    errorEl.textContent = data.error || 'Gagal generate';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Network error';
+            }
+        }
+    </script>
+</body>
+</html>
