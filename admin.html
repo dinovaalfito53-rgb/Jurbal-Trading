@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASSO Admin - Generate License</title>
+    <style>
+        body {
+            background: #030712;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .admin-card {
+            background: #0b1424;
+            border: 1px solid rgba(0,255,136,0.2);
+            border-radius: 20px;
+            padding: 32px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(0,0,0,0.6);
+        }
+        h2 { color: #00ff88; margin-bottom: 24px; }
+        label { display: block; margin: 12px 0 6px; font-size: 0.8rem; text-transform: uppercase; }
+        select, input {
+            width: 100%;
+            background: #020617;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            font-family: monospace;
+            margin-bottom: 16px;
+        }
+        .btn {
+            background: #059669;
+            color: #000;
+            font-weight: 700;
+            font-family: monospace;
+            border: none;
+            padding: 14px;
+            width: 100%;
+            border-radius: 12px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 16px;
+            background: #02030a;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: monospace;
+            color: #00ff88;
+        }
+        .error { color: #ff3b5c; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="admin-card">
+        <h2>🔐 Generate License Key</h2>
+        <label>Tipe Lisensi</label>
+        <select id="type">
+            <option value="monthly">Bulanan</option>
+            <option value="permanent">Permanen</option>
+        </select>
+
+        <div id="durationGroup">
+            <label>Durasi (bulan)</label>
+            <input type="number" id="duration" value="1" min="1" max="24">
+        </div>
+
+        <button class="btn" onclick="generateKey()">⚡ GENERATE KEY</button>
+        <div id="result" class="result" style="display:none;"></div>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        const adminToken = new URLSearchParams(window.location.search).get('admin');
+        if (adminToken !== 'ASSOxVan') {
+            document.body.innerHTML = '<h1 style="color:#ff3b5c;text-align:center;margin-top:100px;">403 Forbidden</h1>';
+            throw new Error('Access denied');
+        }
+
+        document.getElementById('type').addEventListener('change', function() {
+            document.getElementById('durationGroup').style.display = this.value === 'monthly' ? 'block' : 'none';
+        });
+
+        async function generateKey() {
+            const type = document.getElementById('type').value;
+            const duration = parseInt(document.getElementById('duration').value) || 1;
+            const resultEl = document.getElementById('result');
+            const errorEl = document.getElementById('error');
+            resultEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            try {
+                const res = await fetch('/api/admin/generate-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': 'ASSOxVan'
+                    },
+                    body: JSON.stringify({ type, durationMonths: duration })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    resultEl.innerHTML = `✅ KEY: <strong>${data.key}</strong><br>${data.type === 'monthly' ? 'Expired: ' + new Date(data.expiry).toLocaleDateString('id-ID') : 'Permanen'}`;
+                    resultEl.style.display = 'block';
+                } else {
+                    errorEl.textContent = data.error || 'Gagal generate';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Network error';
+            }
+        }
+    </script>
+</body>
+</html>
