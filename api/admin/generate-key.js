@@ -2,15 +2,11 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Admin token
   if (req.headers['x-admin-token'] !== process.env.ADMIN_TOKEN) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
   const { type = 'monthly', duration = 1 } = req.body;
-  // type: 'daily', 'weekly', 'monthly', 'permanent'
-  // duration: jumlah (untuk daily=hari, weekly=minggu, monthly=bulan)
-
   const edgeConfigId = process.env.EDGE_CONFIG_ID;
   const edgeConfigToken = process.env.EDGE_CONFIG_TOKEN;
 
@@ -18,7 +14,34 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Edge Config not configured' });
   }
 
-  // Generate key random
+  // Baca lisensi yang sudah ada
+  let licenses = [];
+  try {
+    const getResp = await fetch(
+      `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
+      { headers: { Authorization: `Bearer ${edgeConfigToken}` } }
+    );
+
+    if (!getResp.ok) {
+      const errText = await getResp.text();
+      throw new Error(`Gagal baca Edge Config: ${getResp.status} ${errText}`);
+    }
+
+    const data = await getResp.json();
+    // Pastikan data.items adalah array
+    if (Array.isArray(data.items)) {
+      const licensesItem = data.items.find(item => item.key === 'licenses');
+      if (licensesItem) {
+        licenses = JSON.parse(licensesItem.value);
+      }
+    }
+  } catch (error) {
+    // Jika gagal baca, asumsikan lisensi kosong
+    console.error(error);
+    licenses = [];
+  }
+
+  // Generate key
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let key = 'ASSO-';
   for (let i = 0; i < 4; i++) {
@@ -28,7 +51,6 @@ export default async function handler(req, res) {
     if (i < 3) key += '-';
   }
 
-  // Hitung expiry berdasarkan tipe
   let expiry = null;
   const now = Date.now();
   switch (type) {
@@ -48,34 +70,38 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid type' });
   }
 
-  const newLicense = {
-    key,
-    type,
-    created: new Date().toISOString(),
-    expiry,
-  };
+  const newLicense = { key, type, created: new Date().toISOString(), expiry };
+  licenses.push(newLicense);
 
+  // Simpan kembali ke Edge Config
   try {
-    // Ambil lisensi existing
-    const response = await fetch(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`, {
-      headers: { Authorization: `Bearer ${edgeConfigToken}` }
-    });
-    const data = await response.json();
-    const licensesItem = data.items.find(item => item.key === 'licenses');
-    const licenses = licensesItem ? JSON.parse(licensesItem.value) : [];
-    licenses.push(newLicense);
+    const patchResp = await fetch(
+      `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${edgeConfigToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: [
+            {
+              operation: 'update',
+              key: 'licenses',
+              value: JSON.stringify(licenses),
+            },
+          ],
+        }),
+      }
+    );
 
-    // Update Edge Config
-    await fetch(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${edgeConfigToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: [{ operation: 'update', key: 'licenses', value: JSON.stringify(licenses) }]
-      })
-    });
+    if (!patchResp.ok) {
+      const errText = await patchResp.text();
+      throw new Error(`Gagal update Edge Config: ${patchResp.status} ${errText}`);
+    }
 
-    return res.status(200).json({ key, type, expiry: newLicense.expiry });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(200).json({ key, type, expiry });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 }
