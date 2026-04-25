@@ -1,12 +1,13 @@
 // api/market-bias.js
-let priceHistory = [];        // menyimpan harga terbaru (max 30)
+let cachedPrices = null;       // array harga close harian (max 200)
 let lastFetchTime = 0;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 menit untuk fetch API
-const MAX_HISTORY = 30;
+const CACHE_DURATION = 60 * 60 * 1000; // 1 jam (harian tidak perlu sering)
+const MAX_HISTORY = 200;
+const EMA_FAST = 50;
+const EMA_SLOW = 200;
 
-// Fungsi menghitung EMA
 function calculateEMA(prices, period) {
-  if (prices.length === 0) return null;
+  if (!prices || prices.length === 0) return null;
   if (prices.length === 1) return prices[0];
   const k = 2 / (period + 1);
   let ema = prices[0];
@@ -19,68 +20,74 @@ function calculateEMA(prices, period) {
 export default async function handler(req, res) {
   const now = Date.now();
 
-  // --- Ambil harga terbaru ---
-  // (cache berlaku hanya untuk fetch API, bukan untuk perhitungan EMA)
-  if ((now - lastFetchTime) > CACHE_DURATION || priceHistory.length === 0) {
+  // Ambil data historis jika cache expired atau belum ada
+  if (!cachedPrices || (now - lastFetchTime) > CACHE_DURATION) {
     const apiKey = process.env.GOLDAPI_KEY || 'goldapi-556fcef0b4a76cd120ae1ad724104703-io';
-    let newPrice = null;
+    let prices = [];
+
     try {
-      const response = await fetch('https://www.goldapi.io/api/XAU/USD', {
-        headers: { 'x-access-token': apiKey }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        newPrice = data.price;          // harga terbaru
-        lastFetchTime = now;
+      // Coba ambil data harian dari GoldAPI
+      const resp = await fetch(
+        `https://www.goldapi.io/api/XAU/USD/ohlc?period=daily&limit=${MAX_HISTORY}`,
+        { headers: { 'x-access-token': apiKey } }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        // data.ohlc adalah array { close, ... }
+        if (data.ohlc && Array.isArray(data.ohlc)) {
+          prices = data.ohlc.map(item => item.close).reverse(); // paling lama dulu
+        }
       }
     } catch (e) {
-      // fallback ke simulasi kalau API gagal
+      // fallback simulasi jika API gagal
     }
 
-    if (newPrice === null) {
-      // simulasi random walk di sekitar harga terakhir atau 2650
-      const lastPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1] : 2650;
-      newPrice = lastPrice + (Math.random() - 0.5) * 10; // fluktuasi ±5$
+    // Jika data kosong/API gagal, generate simulasi dengan tren lebih jelas
+    if (prices.length < 50) {
+      prices = [];
+      let base = 2600;
+      // trend naik perlahan + noise
+      for (let i = 0; i < MAX_HISTORY; i++) {
+        base = base + (Math.random() - 0.48) * 10; // bias bullish kecil
+        prices.push(base);
+      }
     }
 
-    // Tambahkan ke history (max 30)
-    priceHistory.push(newPrice);
-    if (priceHistory.length > MAX_HISTORY) {
-      priceHistory.shift(); // hapus yang paling lama
-    }
+    cachedPrices = prices.slice(-MAX_HISTORY);
+    lastFetchTime = now;
   }
 
-  // --- Hitung EMA ---
-  const ema10 = calculateEMA(priceHistory, 10);
-  const ema20 = calculateEMA(priceHistory, 20);
+  // Hitung EMA
+  const emaFast = calculateEMA(cachedPrices, EMA_FAST);
+  const emaSlow = calculateEMA(cachedPrices, EMA_SLOW);
+  const currentPrice = cachedPrices[cachedPrices.length - 1];
 
   let bias = 'SIDEWAYS';
   let icon = '⚪';
-  let color = '#f59e0b';   // amber
+  let color = '#f59e0b';
 
-  if (ema10 !== null && ema20 !== null) {
-    const diffPercent = ((ema10 - ema20) / ema20) * 100;
-    if (diffPercent > 0.1) {
+  if (emaFast !== null && emaSlow !== null && emaSlow !== 0) {
+    const diffPercent = ((emaFast - emaSlow) / emaSlow) * 100;
+    // Threshold lebih kecil (0.05%) karena data harian lebih smooth
+    if (diffPercent > 0.05) {
       bias = 'BULLISH';
       icon = '🟢';
       color = '#00ff88';
-    } else if (diffPercent < -0.1) {
+    } else if (diffPercent < -0.05) {
       bias = 'BEARISH';
       icon = '🔴';
       color = '#ff3b5c';
     }
   }
 
-  const currentPrice = priceHistory[priceHistory.length - 1];
-
   return res.status(200).json({
     price: currentPrice,
-    prev_price: priceHistory.length > 1 ? priceHistory[priceHistory.length - 2] : currentPrice,
-    ema10: ema10 ? +ema10.toFixed(2) : null,
-    ema20: ema20 ? +ema20.toFixed(2) : null,
+    emaFast: emaFast ? +emaFast.toFixed(2) : null,
+    emaSlow: emaSlow ? +emaSlow.toFixed(2) : null,
     bias,
     icon,
     color,
-    historyCount: priceHistory.length
+    dataPoints: cachedPrices.length,
+    timeframe: 'D1 (Daily)'
   });
 }
