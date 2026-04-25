@@ -1,40 +1,86 @@
 // api/market-bias.js
-let cachedData = null;
+let priceHistory = [];        // menyimpan harga terbaru (max 30)
 let lastFetchTime = 0;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 menit
+const CACHE_DURATION = 10 * 60 * 1000; // 10 menit untuk fetch API
+const MAX_HISTORY = 30;
+
+// Fungsi menghitung EMA
+function calculateEMA(prices, period) {
+  if (prices.length === 0) return null;
+  if (prices.length === 1) return prices[0];
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
 
 export default async function handler(req, res) {
   const now = Date.now();
 
-  // Kembalikan cache jika masih segar
-  if (cachedData && (now - lastFetchTime) < CACHE_DURATION) {
-    return res.status(200).json(cachedData);
-  }
-
-  // API key: pakai environment variable jika ada, jika tidak pakai hardcoded
-  const apiKey = process.env.GOLDAPI_KEY || 'goldapi-556fcef0b4a76cd120ae1ad724104703-io';
-
-  try {
-    const response = await fetch('https://www.goldapi.io/api/XAU/USD', {
-      headers: { 'x-access-token': apiKey }
-    });
-    if (response.ok) {
-      const data = await response.json();
-      cachedData = {
-        price: data.price,
-        prev_price: data.prev_close_price || data.price * 0.999
-      };
-      lastFetchTime = now;
-      return res.status(200).json(cachedData);
+  // --- Ambil harga terbaru ---
+  // (cache berlaku hanya untuk fetch API, bukan untuk perhitungan EMA)
+  if ((now - lastFetchTime) > CACHE_DURATION || priceHistory.length === 0) {
+    const apiKey = process.env.GOLDAPI_KEY || 'goldapi-556fcef0b4a76cd120ae1ad724104703-io';
+    let newPrice = null;
+    try {
+      const response = await fetch('https://www.goldapi.io/api/XAU/USD', {
+        headers: { 'x-access-token': apiKey }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        newPrice = data.price;          // harga terbaru
+        lastFetchTime = now;
+      }
+    } catch (e) {
+      // fallback ke simulasi kalau API gagal
     }
-    throw new Error('API request failed');
-  } catch (error) {
-    // Fallback simulasi kalau API gagal total
-    const price = 2650 + Math.random() * 80;
-    const simulated = {
-      price,
-      prev_price: price * (1 + (Math.random() - 0.5) * 0.008)
-    };
-    return res.status(200).json(simulated);
+
+    if (newPrice === null) {
+      // simulasi random walk di sekitar harga terakhir atau 2650
+      const lastPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1] : 2650;
+      newPrice = lastPrice + (Math.random() - 0.5) * 10; // fluktuasi ±5$
+    }
+
+    // Tambahkan ke history (max 30)
+    priceHistory.push(newPrice);
+    if (priceHistory.length > MAX_HISTORY) {
+      priceHistory.shift(); // hapus yang paling lama
+    }
   }
+
+  // --- Hitung EMA ---
+  const ema10 = calculateEMA(priceHistory, 10);
+  const ema20 = calculateEMA(priceHistory, 20);
+
+  let bias = 'SIDEWAYS';
+  let icon = '⚪';
+  let color = '#f59e0b';   // amber
+
+  if (ema10 !== null && ema20 !== null) {
+    const diffPercent = ((ema10 - ema20) / ema20) * 100;
+    if (diffPercent > 0.1) {
+      bias = 'BULLISH';
+      icon = '🟢';
+      color = '#00ff88';
+    } else if (diffPercent < -0.1) {
+      bias = 'BEARISH';
+      icon = '🔴';
+      color = '#ff3b5c';
+    }
+  }
+
+  const currentPrice = priceHistory[priceHistory.length - 1];
+
+  return res.status(200).json({
+    price: currentPrice,
+    prev_price: priceHistory.length > 1 ? priceHistory[priceHistory.length - 2] : currentPrice,
+    ema10: ema10 ? +ema10.toFixed(2) : null,
+    ema20: ema20 ? +ema20.toFixed(2) : null,
+    bias,
+    icon,
+    color,
+    historyCount: priceHistory.length
+  });
 }
