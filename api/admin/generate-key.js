@@ -5,6 +5,8 @@ export default async function handler(req, res) {
   }
 
   const { type = 'monthly', duration = 1 } = req.body;
+
+  // Generate key acak
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let key = 'ASSO-';
   for (let i = 0; i < 4; i++) {
@@ -30,23 +32,27 @@ export default async function handler(req, res) {
   licenses.push(newLicense);
 
   try {
-    const updateEnv = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/env`, {
-      method: 'POST',
+    // Cari ID environment variable LICENSES
+    const listResp = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/env`, {
+      headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}` }
+    });
+    const listData = await listResp.json();
+    const envVar = listData.envs?.find(e => e.key === 'LICENSES');
+    if (!envVar) throw new Error('LICENSES environment variable not found');
+
+    // Update nilainya (PATCH, bukan POST)
+    const updateResp = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/env/${envVar.id}`, {
+      method: 'PATCH',
       headers: {
         Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        key: 'LICENSES',
-        value: JSON.stringify(licenses),
-        type: 'plain',
-        target: ['production', 'preview', 'development']
-      })
+      body: JSON.stringify({ value: JSON.stringify(licenses) })
     });
 
-    if (!updateEnv.ok) {
-      const errText = await updateEnv.text();
-      throw new Error(`Gagal menyimpan: ${updateEnv.status} ${errText}`);
+    if (!updateResp.ok) {
+      const errText = await updateResp.text();
+      throw new Error(`Gagal update: ${updateResp.status} ${errText}`);
     }
 
     return res.status(200).json({ key, type, expiry });
