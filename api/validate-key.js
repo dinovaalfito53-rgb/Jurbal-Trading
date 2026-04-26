@@ -19,46 +19,16 @@ export default async function handler(req, res) {
     const data = await getResp.json();
 
     let licenses = [];
-
     if (data && data.result) {
       let parsed = data.result;
-
-      // Jika hasil berbentuk string, parse dulu
-      if (typeof parsed === 'string') {
-        try {
-          parsed = JSON.parse(parsed);
-        } catch (e) {
-          return res.status(500).json({ valid: false, reason: 'JSON parse error 1' });
-        }
-      }
-
-      // Sekarang parsed bisa jadi string lagi karena adanya dua kali stringify
-      if (typeof parsed === 'string') {
-        try {
-          parsed = JSON.parse(parsed);
-        } catch (e) {
-          return res.status(500).json({ valid: false, reason: 'JSON parse error 2' });
-        }
-      }
-
-      // Akhirnya, jika parsed memiliki properti value, ambil itu
+      // Tangani hingga 2 lapis JSON string
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed);
       if (parsed && parsed.value) {
-        if (typeof parsed.value === 'string') {
-          try {
-            licenses = JSON.parse(parsed.value);
-          } catch (e) {
-            return res.status(500).json({ valid: false, reason: 'JSON parse error 3' });
-          }
-        } else {
-          licenses = parsed.value;
-        }
-      } else if (Array.isArray(parsed)) {
-        licenses = parsed;
+        if (typeof parsed.value === 'string') parsed = JSON.parse(parsed.value);
+        else parsed = parsed.value;
       }
-    }
-
-    if (!Array.isArray(licenses)) {
-      return res.status(500).json({ valid: false, reason: 'Licenses is not an array' });
+      licenses = Array.isArray(parsed) ? parsed : [];
     }
 
     const license = licenses.find(lic => lic.key === key);
