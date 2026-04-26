@@ -19,9 +19,9 @@ export default async function handler(req, res) {
   let expiry = null;
   const now = Date.now();
   switch (type) {
-    case 'daily': expiry = new Date(now + duration * 24 * 60 * 60 * 1000).toISOString(); break;
-    case 'weekly': expiry = new Date(now + duration * 7 * 24 * 60 * 60 * 1000).toISOString(); break;
-    case 'monthly': expiry = new Date(now + duration * 30 * 24 * 60 * 60 * 1000).toISOString(); break;
+    case 'daily': expiry = new Date(now + duration * 24*60*60*1000).toISOString(); break;
+    case 'weekly': expiry = new Date(now + duration * 7*24*60*60*1000).toISOString(); break;
+    case 'monthly': expiry = new Date(now + duration * 30*24*60*60*1000).toISOString(); break;
     case 'permanent': expiry = null; break;
     default: return res.status(400).json({ error: 'Invalid type' });
   }
@@ -36,37 +36,33 @@ export default async function handler(req, res) {
     }
 
     // Ambil lisensi yang sudah ada
-    const getResp = await fetch(`${kvUrl}/get/licenses`, {
-      headers: { Authorization: `Bearer ${kvToken}` }
-    });
-    if (!getResp.ok) throw new Error('Gagal mengambil data dari KV');
-
-    const data = await getResp.json();
     let licenses = [];
-
-    // Parse dengan aman, apa pun format yang dikembalikan KV
-    if (data && data.result) {
-      if (typeof data.result === 'string') {
-        try {
-          licenses = JSON.parse(data.result);
-        } catch (e) {
-          licenses = [];
+    try {
+      const getResp = await fetch(`${kvUrl}/get/licenses`, {
+        headers: { Authorization: `Bearer ${kvToken}` }
+      });
+      if (getResp.ok) {
+        const data = await getResp.json();
+        if (data && data.result) {
+          // Tangani string JSON yang mungkin double‑stringified
+          let parsed = data.result;
+          if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+          if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+          if (parsed && parsed.value) {
+            if (typeof parsed.value === 'string') parsed = JSON.parse(parsed.value);
+            else parsed = parsed.value;
+          }
+          licenses = Array.isArray(parsed) ? parsed : [];
         }
-      } else if (Array.isArray(data.result)) {
-        licenses = data.result;
-      } else {
-        licenses = [];
       }
-    }
-
-    // Pastikan licenses adalah array
-    if (!Array.isArray(licenses)) {
+    } catch (e) {
+      // jika belum ada key 'licenses', mulai dari array kosong
       licenses = [];
     }
 
     licenses.push(newLicense);
 
-    // Simpan kembali ke KV sebagai string JSON
+    // Simpan kembali – kali ini hanya satu kali JSON.stringify
     const setResp = await fetch(`${kvUrl}/set/licenses`, {
       method: 'POST',
       headers: {
