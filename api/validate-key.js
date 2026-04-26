@@ -19,15 +19,41 @@ export default async function handler(req, res) {
     const data = await getResp.json();
 
     let licenses = [];
+
     if (data && data.result) {
-      if (typeof data.result === 'string') {
+      let parsed = data.result;
+
+      // Jika hasil berbentuk string, parse dulu
+      if (typeof parsed === 'string') {
         try {
-          licenses = JSON.parse(data.result);
+          parsed = JSON.parse(parsed);
         } catch (e) {
-          return res.status(500).json({ valid: false, reason: 'Invalid JSON in KV' });
+          return res.status(500).json({ valid: false, reason: 'JSON parse error 1' });
         }
-      } else if (Array.isArray(data.result)) {
-        licenses = data.result;
+      }
+
+      // Sekarang parsed bisa jadi string lagi karena adanya dua kali stringify
+      if (typeof parsed === 'string') {
+        try {
+          parsed = JSON.parse(parsed);
+        } catch (e) {
+          return res.status(500).json({ valid: false, reason: 'JSON parse error 2' });
+        }
+      }
+
+      // Akhirnya, jika parsed memiliki properti value, ambil itu
+      if (parsed && parsed.value) {
+        if (typeof parsed.value === 'string') {
+          try {
+            licenses = JSON.parse(parsed.value);
+          } catch (e) {
+            return res.status(500).json({ valid: false, reason: 'JSON parse error 3' });
+          }
+        } else {
+          licenses = parsed.value;
+        }
+      } else if (Array.isArray(parsed)) {
+        licenses = parsed;
       }
     }
 
