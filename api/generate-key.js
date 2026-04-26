@@ -29,24 +29,28 @@ export default async function handler(req, res) {
   const licenses = JSON.parse(raw);
   licenses.push(newLicense);
 
-  // Update environment variable via Vercel API
-  const updateEnv = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/env`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      key: 'LICENSES',
-      value: JSON.stringify(licenses),
-      type: 'plain',
-      target: ['production', 'preview', 'development']
-    })
-  });
+  try {
+    const updateEnv = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/env`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        key: 'LICENSES',
+        value: JSON.stringify(licenses),
+        type: 'plain',
+        target: ['production', 'preview', 'development']
+      })
+    });
 
-  if (!updateEnv.ok) {
-    return res.status(500).json({ error: 'Gagal menyimpan lisensi' });
+    if (!updateEnv.ok) {
+      const errText = await updateEnv.text();
+      throw new Error(`Gagal menyimpan: ${updateEnv.status} ${errText}`);
+    }
+
+    return res.status(200).json({ key, type, expiry });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
-
-  return res.status(200).json({ key, type, expiry });
 }
