@@ -1,13 +1,15 @@
-// api/list-keys.js
-export default async function handler(req, res) {
-  if (req.headers['x-admin-token'] !== process.env.ADMIN_TOKEN) {
+1export default async function handler(req, res) {
+  const { secret } = req.query;
+  if (secret !== 'ASSOxVan') {
     return res.status(403).json({ error: 'Forbidden' });
   }
+
   const edgeConfigId = process.env.EDGE_CONFIG_ID;
   const edgeConfigToken = process.env.EDGE_CONFIG_TOKEN;
   if (!edgeConfigId || !edgeConfigToken) {
     return res.status(500).json({ error: 'Edge Config not configured' });
   }
+
   try {
     const response = await fetch(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`, {
       headers: { Authorization: `Bearer ${edgeConfigToken}` }
