@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   const { type = 'monthly', duration = 1 } = req.body;
 
-  // Generate key
+  // Generate key acak
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let key = 'ASSO-';
   for (let i = 0; i < 4; i++) {
@@ -19,9 +19,9 @@ export default async function handler(req, res) {
   let expiry = null;
   const now = Date.now();
   switch (type) {
-    case 'daily': expiry = new Date(now + duration * 24*60*60*1000).toISOString(); break;
-    case 'weekly': expiry = new Date(now + duration * 7*24*60*60*1000).toISOString(); break;
-    case 'monthly': expiry = new Date(now + duration * 30*24*60*60*1000).toISOString(); break;
+    case 'daily': expiry = new Date(now + duration * 24 * 60 * 60 * 1000).toISOString(); break;
+    case 'weekly': expiry = new Date(now + duration * 7 * 24 * 60 * 60 * 1000).toISOString(); break;
+    case 'monthly': expiry = new Date(now + duration * 30 * 24 * 60 * 60 * 1000).toISOString(); break;
     case 'permanent': expiry = null; break;
     default: return res.status(400).json({ error: 'Invalid type' });
   }
@@ -29,22 +29,45 @@ export default async function handler(req, res) {
   const newLicense = { key, type, created: new Date().toISOString(), expiry };
 
   try {
-    // Ambil lisensi yang sudah ada dari KV
-    const kvUrl = process.env.KV_REST_API_URL + '/get/licenses';
+    const kvUrl = process.env.KV_REST_API_URL;
     const kvToken = process.env.KV_REST_API_TOKEN;
+    if (!kvUrl || !kvToken) {
+      return res.status(500).json({ error: 'KV not configured' });
+    }
 
-    const getResp = await fetch(kvUrl, {
+    // Ambil lisensi yang sudah ada
+    const getResp = await fetch(`${kvUrl}/get/licenses`, {
       headers: { Authorization: `Bearer ${kvToken}` }
     });
-    const getData = await getResp.json();
+    if (!getResp.ok) throw new Error('Gagal mengambil data dari KV');
+
+    const data = await getResp.json();
     let licenses = [];
-    if (getData.result) {
-      licenses = JSON.parse(getData.result);
+
+    // Parse dengan aman, apa pun format yang dikembalikan KV
+    if (data && data.result) {
+      if (typeof data.result === 'string') {
+        try {
+          licenses = JSON.parse(data.result);
+        } catch (e) {
+          licenses = [];
+        }
+      } else if (Array.isArray(data.result)) {
+        licenses = data.result;
+      } else {
+        licenses = [];
+      }
     }
+
+    // Pastikan licenses adalah array
+    if (!Array.isArray(licenses)) {
+      licenses = [];
+    }
+
     licenses.push(newLicense);
 
-    // Simpan kembali ke KV
-    const setResp = await fetch(process.env.KV_REST_API_URL + '/set/licenses', {
+    // Simpan kembali ke KV sebagai string JSON
+    const setResp = await fetch(`${kvUrl}/set/licenses`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${kvToken}`,
